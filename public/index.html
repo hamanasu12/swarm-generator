@@ -18,8 +18,10 @@
   <script>
     async function run() {
       const url = document.getElementById("url").value;
-      const res = await fetch("/api/resolve?url=" + encodeURIComponent(url));
+
+      const res = await fetch(`/api?url=${encodeURIComponent(url)}`);
       const data = await res.json();
+
       document.getElementById("out").textContent =
         JSON.stringify(data, null, 2);
     }

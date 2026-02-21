@@ -1,5 +1,0 @@
-C:\Users\koji-\myproject\swarm-generator>node server.js
-Server running at http://localhost:3000
-
-ブラウザで
-http://localhost:3000/?url=https://ja.swarmapp.com/user/119128188/checkin/69639d0bc65eae043e5a0f3e?s=npgRrTtRZ-LEbJvjkee-FZivkYo
