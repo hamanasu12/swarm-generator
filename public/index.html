@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>Swarm URL → 場所抽出</title>
+</head>
+<body>
+  <h2>Swarm URL を入力</h2>
+
+  <input id="url" size="80"
+    value="https://ja.swarmapp.com/user/119128188/checkin/696c2568a8dd716322f98d84" />
+  <br><br>
+
+  <button onclick="run()">取得</button>
+
+  <pre id="out"></pre>
+
+  <script>
+    async function run() {
+      const url = document.getElementById("url").value;
+      const res = await fetch("/api/resolve?url=" + encodeURIComponent(url));
+      const data = await res.json();
+      document.getElementById("out").textContent =
+        JSON.stringify(data, null, 2);
+    }
+  </script>
+</body>
+</html>
