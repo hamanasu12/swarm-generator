@@ -1,6 +1,6 @@
-const cheerio = require("cheerio");
+import cheerio from "cheerio";
 
-module.exports = async (req, res) => {
+export default async function handler(req, res) {
   const { url } = req.query;
 
   if (!url) {
@@ -8,7 +8,7 @@ module.exports = async (req, res) => {
   }
 
   try {
-    // ① Swarmページ取得
+    /* ===== ① Swarmページ取得 ===== */
     const swarmRes = await fetch(url, {
       headers: { "User-Agent": "Mozilla/5.0" }
     });
@@ -24,7 +24,7 @@ module.exports = async (req, res) => {
       return res.status(400).json({ error: "venue not found" });
     }
 
-    // ② 緯度経度検索
+    /* ===== ② 緯度経度検索 ===== */
     const searchUrl =
       "https://nominatim.openstreetmap.org/search" +
       `?q=${encodeURIComponent(venue)}&format=json&limit=1`;
@@ -37,13 +37,14 @@ module.exports = async (req, res) => {
     });
 
     const geoJson = await geoRes.json();
+
     if (!geoJson.length) {
       return res.json({ venue, error: "location not found" });
     }
 
     const { lat, lon } = geoJson[0];
 
-    // ③ reverse
+    /* ===== ③ reverse ===== */
     const reverseUrl =
       `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json`;
 
@@ -75,4 +76,4 @@ module.exports = async (req, res) => {
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
-};
+}

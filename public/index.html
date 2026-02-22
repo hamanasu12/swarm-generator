@@ -2,29 +2,29 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <title>Swarm URL → 場所抽出</title>
+  <title>Swarm URL → JSON</title>
 </head>
 <body>
-  <h2>Swarm URL を入力</h2>
 
-  <input id="url" size="80"
-    value="https://ja.swarmapp.com/user/119128188/checkin/696c2568a8dd716322f98d84" />
-  <br><br>
+<h2>Swarm URL を入力</h2>
 
-  <button onclick="run()">取得</button>
+<input id="url" size="80"
+value="https://ja.swarmapp.com/user/119128188/checkin/696c2568a8dd716322f98d84">
 
-  <pre id="out"></pre>
+<br><br>
+<button onclick="run()">取得</button>
 
-  <script>
-    async function run() {
-      const url = document.getElementById("url").value;
+<pre id="out"></pre>
 
-      const res = await fetch(`/api?url=${encodeURIComponent(url)}`);
-      const data = await res.json();
+<script>
+async function run() {
+  const url = document.getElementById("url").value;
+  const res = await fetch(`/api?url=${encodeURIComponent(url)}`);
+  const data = await res.json();
+  document.getElementById("out").textContent =
+    JSON.stringify(data, null, 2);
+}
+</script>
 
-      document.getElementById("out").textContent =
-        JSON.stringify(data, null, 2);
-    }
-  </script>
 </body>
 </html>
