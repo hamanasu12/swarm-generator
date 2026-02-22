@@ -1,4 +1,4 @@
-import cheerio from "cheerio";
+import * as cheerio from "cheerio";
 
 export default async function handler(req, res) {
   const { url } = req.query;
@@ -8,7 +8,6 @@ export default async function handler(req, res) {
   }
 
   try {
-    /* ===== ① Swarmページ取得 ===== */
     const swarmRes = await fetch(url, {
       headers: { "User-Agent": "Mozilla/5.0" }
     });
@@ -24,7 +23,6 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: "venue not found" });
     }
 
-    /* ===== ② 緯度経度検索 ===== */
     const searchUrl =
       "https://nominatim.openstreetmap.org/search" +
       `?q=${encodeURIComponent(venue)}&format=json&limit=1`;
@@ -44,7 +42,6 @@ export default async function handler(req, res) {
 
     const { lat, lon } = geoJson[0];
 
-    /* ===== ③ reverse ===== */
     const reverseUrl =
       `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json`;
 
@@ -74,6 +71,7 @@ export default async function handler(req, res) {
     });
 
   } catch (err) {
+    console.error(err);
     return res.status(500).json({ error: err.message });
   }
 }
