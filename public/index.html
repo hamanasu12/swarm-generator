@@ -3,10 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <title>Swarm URL → I'm at 文生成</title>
+
   <style>
     body {
       font-family: system-ui, sans-serif;
-      max-width: 820px;
+      max-width: 860px;
       margin: 40px auto;
       line-height: 1.6;
     }
@@ -26,6 +27,11 @@
       cursor: pointer;
     }
 
+    .status {
+      margin-top: 12px;
+      color: #555;
+    }
+
     .share-box {
       margin-top: 20px;
       padding: 16px;
@@ -41,9 +47,26 @@
       word-break: break-word;
     }
 
-    .status {
-      margin-top: 12px;
+    .candidate-box {
+      margin-top: 20px;
+      display: none;
+    }
+
+    .candidate {
+      border: 1px solid #ddd;
+      padding: 12px;
+      margin-top: 10px;
+      background: #fafafa;
+    }
+
+    .candidate-title {
+      font-weight: bold;
+    }
+
+    .candidate-address {
       color: #555;
+      font-size: 14px;
+      margin-top: 4px;
     }
 
     pre {
@@ -56,21 +79,33 @@
     }
   </style>
 </head>
+
 <body>
 
   <h2>Swarm URL → I'm at 文生成</h2>
 
   <p>
-    SwarmのチェックインURLを入力すると、venue名・位置情報を取得し、
-    昔ながらの共有文を生成します。
+    SwarmのチェックインURL、またはURLを含む文章を入力すると、
+    候補地点を表示して、選んだ場所で共有文を生成します。
   </p>
 
-  <input id="url" placeholder="SwarmのURLまたはURLを含む文章を入力">
+  <input
+    id="url"
+    placeholder="SwarmのURLまたはURLを含む文章を入力"
+  >
 
   <button id="fetchButton" onclick="run()">取得</button>
   <button onclick="clearForm()">クリア</button>
 
   <div id="status" class="status"></div>
+
+  <div id="candidateBox" class="candidate-box">
+    <h3>候補地点</h3>
+    <div id="candidateList"></div>
+    <button id="googleButton" onclick="searchWithGoogle()" style="display:none;">
+      Nominatimに良い候補がないのでGoogleで検索
+    </button>
+  </div>
 
   <div id="shareBox" class="share-box">
     <div id="shareText" class="share-text"></div>
@@ -83,10 +118,16 @@
     const urlInput = document.getElementById("url");
     const fetchButton = document.getElementById("fetchButton");
     const status = document.getElementById("status");
+    const candidateBox = document.getElementById("candidateBox");
+    const candidateList = document.getElementById("candidateList");
+    const googleButton = document.getElementById("googleButton");
     const shareBox = document.getElementById("shareBox");
     const shareText = document.getElementById("shareText");
     const copyButton = document.getElementById("copyButton");
     const out = document.getElementById("out");
+
+    let currentSwarmUrl = "";
+    let latestData = null;
 
     urlInput.addEventListener("keydown", function(event) {
       if (event.key === "Enter") {
@@ -102,67 +143,142 @@
       return match ? match[0] : null;
     }
 
+    async function fetchCandidates(provider) {
+      const apiUrl =
+        "/api?url=" +
+        encodeURIComponent(currentSwarmUrl) +
+        "&provider=" +
+        encodeURIComponent(provider);
+
+      const res = await fetch(apiUrl);
+      return await res.json();
+    }
+
     async function run() {
       const inputText = urlInput.value.trim();
 
       if (!inputText) {
-        status.textContent = "";
-        shareBox.style.display = "none";
         out.textContent = "URLを入力してください。";
         return;
       }
 
-      const url = extractSwarmUrl(inputText);
+      const extractedUrl = extractSwarmUrl(inputText);
 
-      if (!url) {
-        status.textContent = "";
-        shareBox.style.display = "none";
+      if (!extractedUrl) {
         out.textContent = "SwarmのチェックインURLが見つかりませんでした。";
         return;
       }
 
-      status.textContent = "取得中...";
-      shareBox.style.display = "none";
-      shareText.textContent = "";
-      out.textContent = "";
+      currentSwarmUrl = extractedUrl;
+
+      resetResult();
+      status.textContent = "Nominatimで候補を取得中...";
       fetchButton.disabled = true;
-      copyButton.textContent = "コピー";
 
       try {
-        const res = await fetch("/api?url=" + encodeURIComponent(url));
-        const data = await res.json();
+        const data = await fetchCandidates("nominatim");
+        latestData = data;
 
-        if (data.provider) {
-          status.textContent = `取得完了：${data.provider} を使用`;
-        } else {
-          status.textContent = "取得完了";
-        }
+        status.textContent = data.candidates?.length
+          ? `候補を取得しました：${data.provider}`
+          : "Nominatimでは候補が見つかりませんでした。";
 
-        if (data.shareText) {
-          shareText.textContent = data.shareText;
-          shareBox.style.display = "block";
-        } else if (data.error) {
-          shareText.textContent = "共有文を生成できませんでした。";
-          shareBox.style.display = "block";
-        }
+        renderCandidates(data);
 
         out.textContent = JSON.stringify(data, null, 2);
 
       } catch (e) {
-        status.textContent = "";
-        shareBox.style.display = "none";
         out.textContent = "エラーが発生しました: " + e.message;
       } finally {
         fetchButton.disabled = false;
       }
     }
 
+    async function searchWithGoogle() {
+      if (!currentSwarmUrl) return;
+
+      resetShareOnly();
+      status.textContent = "Googleで候補を取得中...";
+      googleButton.disabled = true;
+
+      try {
+        const data = await fetchCandidates("google");
+        latestData = data;
+
+        status.textContent = data.candidates?.length
+          ? `候補を取得しました：${data.provider}`
+          : "Googleでも候補が見つかりませんでした。";
+
+        renderCandidates(data);
+
+        out.textContent = JSON.stringify(data, null, 2);
+
+      } catch (e) {
+        out.textContent = "エラーが発生しました: " + e.message;
+      } finally {
+        googleButton.disabled = false;
+      }
+    }
+
+    function renderCandidates(data) {
+      candidateList.innerHTML = "";
+      candidateBox.style.display = "block";
+
+      if (!data.candidates || data.candidates.length === 0) {
+        candidateList.innerHTML =
+          "<p>候補が見つかりませんでした。</p>";
+      }
+
+      data.candidates.forEach((candidate, index) => {
+        const div = document.createElement("div");
+        div.className = "candidate";
+
+        div.innerHTML = `
+          <div class="candidate-title">
+            ${index + 1}. ${candidate.venue}
+          </div>
+          <div class="candidate-address">
+            ${candidate.label || ""}
+          </div>
+          <div class="candidate-address">
+            ${candidate.city || ""} ${candidate.state || ""}
+            / ${candidate.provider}
+          </div>
+        `;
+
+        const button = document.createElement("button");
+        button.textContent = "この候補で作成";
+        button.onclick = function() {
+          selectCandidate(candidate);
+        };
+
+        div.appendChild(button);
+        candidateList.appendChild(div);
+      });
+
+      if (data.provider === "nominatim") {
+        googleButton.style.display = "inline-block";
+      } else {
+        googleButton.style.display = "none";
+      }
+    }
+
+    function selectCandidate(candidate) {
+      shareText.textContent = candidate.shareText;
+      shareBox.style.display = "block";
+
+      status.textContent =
+        `共有文を生成しました：${candidate.provider} を使用`;
+
+      out.textContent = JSON.stringify(candidate, null, 2);
+
+      copyButton.textContent = "コピー";
+    }
+
     async function copyShareText() {
       const text = shareText.textContent;
 
-      if (!text || text === "共有文を生成できませんでした。") {
-        return;
-      }
+      if (!text) return;
 
       try {
         await navigator.clipboard.writeText(text);
@@ -178,13 +294,37 @@
       }
     }
 
-    function clearForm() {
-      urlInput.value = "";
+    function resetResult() {
       status.textContent = "";
+      candidateBox.style.display = "none";
+      candidateList.innerHTML = "";
+      googleButton.style.display = "none";
+      resetShareOnly();
+      out.textContent = "";
+    }
+
+    function resetShareOnly() {
       shareBox.style.display = "none";
       shareText.textContent = "";
+      copyButton.textContent = "コピー";
+    }
+
+    function clearForm() {
+      urlInput.value = "";
+      currentSwarmUrl = "";
+      latestData = null;
+
+      status.textContent = "";
+      candidateBox.style.display = "none";
+      candidateList.innerHTML = "";
+      googleButton.style.display = "none";
+
+      shareBox.style.display = "none";
+      shareText.textContent = "";
+
       out.textContent = "ここにJSON結果が表示されます";
       copyButton.textContent = "コピー";
+
       urlInput.focus();
     }
   </script>
