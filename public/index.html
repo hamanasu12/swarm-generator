@@ -20,6 +20,7 @@
 
     button {
       margin-top: 12px;
+      margin-right: 8px;
       padding: 10px 20px;
       font-size: 16px;
       cursor: pointer;
@@ -71,11 +72,12 @@
 
   <input
     id="url"
-    value="https://ja.swarmapp.com/user/119128188/checkin/696c2568a8dd716322f98d84"
+    value=""
     placeholder="SwarmのチェックインURLを入力"
   >
 
   <button id="fetchButton" onclick="run()">取得</button>
+  <button id="clearButton" onclick="clearForm()">クリア</button>
 
   <div id="status" class="status"></div>
 
@@ -167,6 +169,21 @@
           copyButton.textContent = "コピー";
         }, 1500);
       }
+    }
+
+    function clearForm() {
+      urlInput.value = "";
+
+      status.textContent = "";
+
+      shareBox.style.display = "none";
+      shareText.textContent = "";
+
+      out.textContent = "ここにJSON結果が表示されます";
+
+      copyButton.textContent = "コピー";
+
+      urlInput.focus();
     }
   </script>
 
