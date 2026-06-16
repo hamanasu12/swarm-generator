@@ -44,27 +44,59 @@ async function getVenueFromSwarm(url) {
   );
 }
 
-async function searchNominatim(venue) {
-  const searchUrl =
-    "https://nominatim.openstreetmap.org/search" +
-    `?q=${encodeURIComponent(venue)}` +
-    "&format=json" +
-    "&addressdetails=1" +
-    "&limit=5";
+function buildSearchQueries(venue, hint = "") {
+  const queries = [];
 
-  const res = await fetch(searchUrl, {
-    headers: {
-      "User-Agent":
-        "Mozilla/5.0 (compatible; SwarmLocationBot/1.0; +https://example.com)",
-      "Accept": "application/json"
+  if (venue) queries.push(venue);
+
+  if (hint && hint !== venue) {
+    queries.push(hint);
+  }
+
+  return [...new Set(queries)];
+}
+
+async function searchNominatim(venue, hint = "") {
+  const searchQueries = buildSearchQueries(venue, hint);
+
+  const allItems = [];
+  const seen = new Set();
+
+  for (const query of searchQueries) {
+    const searchUrl =
+      "https://nominatim.openstreetmap.org/search" +
+      `?q=${encodeURIComponent(query)}` +
+      "&format=json" +
+      "&addressdetails=1" +
+      "&limit=5";
+
+    const res = await fetch(searchUrl, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (compatible; SwarmLocationBot/1.0; +https://example.com)",
+        "Accept": "application/json"
+      }
+    });
+
+    if (!res.ok) continue;
+
+    const json = await res.json();
+
+    for (const item of json) {
+      const key = item.place_id || `${item.lat},${item.lon}`;
+
+      if (seen.has(key)) continue;
+
+      seen.add(key);
+
+      allItems.push({
+        ...item,
+        search_query: query
+      });
     }
-  });
+  }
 
-  if (!res.ok) return [];
-
-  const json = await res.json();
-
-  return json.map((item, index) => {
+  return allItems.map((item, index) => {
     const addr = normalizeAddress(item.address || {});
     const shareText = makeShareText(venue, addr.city, addr.state);
 
@@ -72,6 +104,7 @@ async function searchNominatim(venue) {
       id: `nominatim-${index}`,
       provider: "nominatim",
       venue,
+      search_query: item.search_query,
       lat: item.lat,
       lon: item.lon,
       country: addr.country,
@@ -84,7 +117,7 @@ async function searchNominatim(venue) {
   });
 }
 
-async function searchGoogle(venue) {
+async function searchGoogle(venue, hint = "") {
   if (!GOOGLE_MAPS_API_KEY) {
     return {
       error: "Google Maps API key is not set",
@@ -92,7 +125,7 @@ async function searchGoogle(venue) {
     };
   }
 
-  const googleQuery = `${venue} 日本`;
+  const googleQuery = hint || venue;
 
   const googleUrl =
     "https://maps.googleapis.com/maps/api/geocode/json" +
@@ -138,6 +171,7 @@ async function searchGoogle(venue) {
       id: `google-${index}`,
       provider: "google",
       venue,
+      search_query: googleQuery,
       lat,
       lon,
       country,
@@ -153,7 +187,7 @@ async function searchGoogle(venue) {
 }
 
 export default async function handler(req, res) {
-  const { url, provider = "nominatim" } = req.query;
+  const { url, provider = "nominatim", hint = "" } = req.query;
 
   if (!url) {
     return res.status(400).json({ error: "url is required" });
@@ -167,10 +201,11 @@ export default async function handler(req, res) {
     }
 
     if (provider === "google") {
-      const result = await searchGoogle(venue);
+      const result = await searchGoogle(venue, hint);
 
       return res.status(200).json({
         venue,
+        hint: hint || null,
         provider: "google",
         candidates: result.candidates || [],
         error: result.error || null,
@@ -179,10 +214,11 @@ export default async function handler(req, res) {
       });
     }
 
-    const candidates = await searchNominatim(venue);
+    const candidates = await searchNominatim(venue, hint);
 
     return res.status(200).json({
       venue,
+      hint: hint || null,
       provider: "nominatim",
       candidates,
       error: candidates.length ? null : "location not found by nominatim"

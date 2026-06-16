@@ -127,6 +127,7 @@
     const out = document.getElementById("out");
 
     let currentSwarmUrl = "";
+    let currentLocationHint = "";
     let latestData = null;
 
     urlInput.addEventListener("keydown", function(event) {
@@ -143,12 +144,21 @@
       return match ? match[0] : null;
     }
 
+    function extractLocationHint(text) {
+      const match = text.match(/、([^、。]+?)にいました/);
+      return match ? match[1].trim() : "";
+    }
+
     async function fetchCandidates(provider) {
-      const apiUrl =
+      let apiUrl =
         "/api?url=" +
         encodeURIComponent(currentSwarmUrl) +
         "&provider=" +
         encodeURIComponent(provider);
+
+      if (currentLocationHint) {
+        apiUrl += "&hint=" + encodeURIComponent(currentLocationHint);
+      }
 
       const res = await fetch(apiUrl);
       return await res.json();
@@ -170,9 +180,17 @@
       }
 
       currentSwarmUrl = extractedUrl;
+      currentLocationHint = extractLocationHint(inputText);
 
       resetResult();
-      status.textContent = "Nominatimで候補を取得中...";
+
+      if (currentLocationHint) {
+        status.textContent =
+          `Nominatimで候補を取得中...（補助キーワード: ${currentLocationHint}）`;
+      } else {
+        status.textContent = "Nominatimで候補を取得中...";
+      }
+
       fetchButton.disabled = true;
 
       try {
@@ -198,7 +216,14 @@
       if (!currentSwarmUrl) return;
 
       resetShareOnly();
-      status.textContent = "Googleで候補を取得中...";
+
+      if (currentLocationHint) {
+        status.textContent =
+          `Googleで候補を取得中...（補助キーワード: ${currentLocationHint}）`;
+      } else {
+        status.textContent = "Googleで候補を取得中...";
+      }
+
       googleButton.disabled = true;
 
       try {
@@ -233,6 +258,10 @@
         const div = document.createElement("div");
         div.className = "candidate";
 
+        const searchQueryText = candidate.search_query
+          ? `<div class="candidate-address">検索語: ${candidate.search_query}</div>`
+          : "";
+
         div.innerHTML = `
           <div class="candidate-title">
             ${index + 1}. ${candidate.venue}
@@ -244,6 +273,7 @@
             ${candidate.city || ""} ${candidate.state || ""}
             / ${candidate.provider}
           </div>
+          ${searchQueryText}
         `;
 
         const button = document.createElement("button");
@@ -312,6 +342,7 @@
     function clearForm() {
       urlInput.value = "";
       currentSwarmUrl = "";
+      currentLocationHint = "";
       latestData = null;
 
       status.textContent = "";
