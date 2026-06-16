@@ -264,7 +264,9 @@
 
         div.innerHTML = `
           <div class="candidate-title">
-            ${index + 1}. ${candidate.venue}
+            ${index + 1}. ${
+              candidate.display_name_for_user || candidate.venue
+            }
           </div>
           <div class="candidate-address">
             ${candidate.label || ""}

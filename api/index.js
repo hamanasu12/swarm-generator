@@ -2,10 +2,19 @@ import * as cheerio from "cheerio";
 
 const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY;
 
-function makeShareText(venue, city, state) {
-  if (venue && city && state) return `I'm at ${venue} in ${city}, ${state}`;
-  if (venue && state) return `I'm at ${venue} in ${state}`;
-  return `I'm at ${venue}`;
+function makeShareText(venue, city, state, hint = "") {
+
+  const placeName = hint || venue;
+
+  if (placeName && city && state) {
+    return `I'm at ${placeName} in ${city}, ${state}`;
+  }
+
+  if (placeName && state) {
+    return `I'm at ${placeName} in ${state}`;
+  }
+
+  return `I'm at ${placeName}`;
 }
 
 function normalizeAddress(addr = {}) {
@@ -98,12 +107,13 @@ async function searchNominatim(venue, hint = "") {
 
   return allItems.map((item, index) => {
     const addr = normalizeAddress(item.address || {});
-    const shareText = makeShareText(venue, addr.city, addr.state);
+    const shareText = makeShareText(venue, addr.city, addr.state, hint);
 
     return {
       id: `nominatim-${index}`,
       provider: "nominatim",
       venue,
+      display_name_for_user: hint || venue,
       search_query: item.search_query,
       lat: item.lat,
       lon: item.lon,
@@ -165,12 +175,13 @@ async function searchGoogle(venue, hint = "") {
 
     const lat = result.geometry.location.lat;
     const lon = result.geometry.location.lng;
-    const shareText = makeShareText(venue, city, state);
+    const shareText = makeShareText(venue, city, state, hint);
 
     return {
       id: `google-${index}`,
       provider: "google",
       venue,
+      display_name_for_user: hint || venue,
       search_query: googleQuery,
       lat,
       lon,
