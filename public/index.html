@@ -1,8 +1,10 @@
 <!DOCTYPE html>
+
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
   <title>Swarm URL → I'm at 文生成</title>
+
   <style>
     body {
       font-family: system-ui, sans-serif;
@@ -60,7 +62,9 @@
       word-break: break-all;
     }
   </style>
+
 </head>
+
 <body>
 
   <h2>Swarm URL → I'm at 文生成</h2>
@@ -70,25 +74,30 @@
     昔ながらの共有文を生成します。
   </p>
 
-  <input
-    id="url"
-    value=""
-    placeholder="SwarmのチェックインURLを入力"
-  >
+<input
+id="url"
+placeholder="SwarmのURLまたはURLを含む文章を入力"
 
-  <button id="fetchButton" onclick="run()">取得</button>
-  <button id="clearButton" onclick="clearForm()">クリア</button>
+>
+
+<button id="fetchButton" onclick="run()">取得</button> <button id="clearButton" onclick="clearForm()">クリア</button>
 
   <div id="status" class="status"></div>
 
   <div id="shareBox" class="share-box">
     <div id="shareText" class="share-text"></div>
-    <button id="copyButton" class="copy-button" onclick="copyShareText()">コピー</button>
+    <button
+      id="copyButton"
+      class="copy-button"
+      onclick="copyShareText()">
+      コピー
+    </button>
   </div>
 
   <pre id="out">ここにJSON結果が表示されます</pre>
 
   <script>
+
     const urlInput = document.getElementById("url");
     const fetchButton = document.getElementById("fetchButton");
     const out = document.getElementById("out");
@@ -104,13 +113,31 @@
       }
     });
 
+    function extractSwarmUrl(text) {
+      const match = text.match(
+        /https?:\/\/(?:ja\.)?swarmapp\.com\/user\/\d+\/checkin\/[A-Za-z0-9]+(?:\?[^ \n\r\t、。]*)?/
+      );
+
+      return match ? match[0] : null;
+    }
+
     async function run() {
-      const url = urlInput.value.trim();
+
+      const inputText = urlInput.value.trim();
+
+      if (!inputText) {
+        status.textContent = "";
+        shareBox.style.display = "none";
+        out.textContent = "URLを入力してください。";
+        return;
+      }
+
+      const url = extractSwarmUrl(inputText);
 
       if (!url) {
         status.textContent = "";
         shareBox.style.display = "none";
-        out.textContent = "URLを入力してください。";
+        out.textContent = "SwarmのチェックインURLが見つかりませんでした。";
         return;
       }
 
@@ -118,15 +145,20 @@
       shareBox.style.display = "none";
       shareText.textContent = "";
       out.textContent = "";
+
       fetchButton.disabled = true;
       copyButton.textContent = "コピー";
 
       try {
-        const res = await fetch("/api?url=" + encodeURIComponent(url));
+
+        const res =
+          await fetch("/api?url=" + encodeURIComponent(url));
+
         const data = await res.json();
 
         if (data.provider) {
-          status.textContent = `取得完了：${data.provider} を使用`;
+          status.textContent =
+            `取得完了：${data.provider} を使用`;
         } else {
           status.textContent = "取得完了";
         }
@@ -134,44 +166,67 @@
         if (data.shareText) {
           shareText.textContent = data.shareText;
           shareBox.style.display = "block";
-        } else if (data.error) {
-          shareText.textContent = "共有文を生成できませんでした。";
+        }
+        else if (data.error) {
+          shareText.textContent =
+            "共有文を生成できませんでした。";
+
           shareBox.style.display = "block";
         }
 
-        out.textContent = JSON.stringify(data, null, 2);
+        out.textContent =
+          JSON.stringify(data, null, 2);
 
-      } catch (e) {
+      }
+      catch (e) {
+
         status.textContent = "";
         shareBox.style.display = "none";
-        out.textContent = "エラーが発生しました: " + e.message;
-      } finally {
+
+        out.textContent =
+          "エラーが発生しました: " + e.message;
+
+      }
+      finally {
         fetchButton.disabled = false;
       }
     }
 
     async function copyShareText() {
+
       const text = shareText.textContent;
 
-      if (!text || text === "共有文を生成できませんでした。") {
+      if (
+        !text ||
+        text === "共有文を生成できませんでした。"
+      ) {
         return;
       }
 
       try {
+
         await navigator.clipboard.writeText(text);
+
         copyButton.textContent = "コピーしました";
+
         setTimeout(() => {
           copyButton.textContent = "コピー";
         }, 1500);
-      } catch (e) {
+
+      }
+      catch (e) {
+
         copyButton.textContent = "コピー失敗";
+
         setTimeout(() => {
           copyButton.textContent = "コピー";
         }, 1500);
+
       }
     }
 
     function clearForm() {
+
       urlInput.value = "";
 
       status.textContent = "";
@@ -179,12 +234,14 @@
       shareBox.style.display = "none";
       shareText.textContent = "";
 
-      out.textContent = "ここにJSON結果が表示されます";
+      out.textContent =
+        "ここにJSON結果が表示されます";
 
       copyButton.textContent = "コピー";
 
       urlInput.focus();
     }
+
   </script>
 
 </body>
