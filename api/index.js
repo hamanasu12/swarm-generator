@@ -2,180 +2,190 @@ import * as cheerio from "cheerio";
 
 const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY;
 
-export default async function handler(req, res) {
-  const url = req.query.url;
+function makeShareText(venue, city, state) {
+  if (venue && city && state) return `I'm at ${venue} in ${city}, ${state}`;
+  if (venue && state) return `I'm at ${venue} in ${state}`;
+  return `I'm at ${venue}`;
+}
 
-  if (!url) {
-    return res.status(400).json({ error: "url is required" });
+function normalizeAddress(addr = {}) {
+  const country = addr.country || null;
+
+  const state =
+    addr.state ||
+    addr.region ||
+    addr.province ||
+    addr.county ||
+    null;
+
+  const city =
+    addr.city ||
+    addr.town ||
+    addr.village ||
+    addr.municipality ||
+    addr.city_district ||
+    null;
+
+  return { country, state, city };
+}
+
+async function getVenueFromSwarm(url) {
+  const swarmRes = await fetch(url, {
+    headers: { "User-Agent": "Mozilla/5.0" }
+  });
+
+  const html = await swarmRes.text();
+  const $ = cheerio.load(html);
+
+  return (
+    $('meta[property="og:title"]').attr("content") ||
+    $('meta[name="twitter:title"]').attr("content") ||
+    null
+  );
+}
+
+async function searchNominatim(venue) {
+  const searchUrl =
+    "https://nominatim.openstreetmap.org/search" +
+    `?q=${encodeURIComponent(venue)}` +
+    "&format=json" +
+    "&addressdetails=1" +
+    "&limit=5";
+
+  const res = await fetch(searchUrl, {
+    headers: {
+      "User-Agent":
+        "Mozilla/5.0 (compatible; SwarmLocationBot/1.0; +https://example.com)",
+      "Accept": "application/json"
+    }
+  });
+
+  if (!res.ok) return [];
+
+  const json = await res.json();
+
+  return json.map((item, index) => {
+    const addr = normalizeAddress(item.address || {});
+    const shareText = makeShareText(venue, addr.city, addr.state);
+
+    return {
+      id: `nominatim-${index}`,
+      provider: "nominatim",
+      venue,
+      lat: item.lat,
+      lon: item.lon,
+      country: addr.country,
+      state: addr.state,
+      city: addr.city,
+      formatted_address: item.display_name || null,
+      label: item.display_name || `${item.lat}, ${item.lon}`,
+      shareText
+    };
+  });
+}
+
+async function searchGoogle(venue) {
+  if (!GOOGLE_MAPS_API_KEY) {
+    return {
+      error: "Google Maps API key is not set",
+      candidates: []
+    };
   }
 
-  try {
-    /* ===== ① Swarm URL → venue名 ===== */
-    const swarmRes = await fetch(url, {
-      headers: {
-        "User-Agent": "Mozilla/5.0"
-      }
-    });
+  const googleQuery = `${venue} 日本`;
 
-    const html = await swarmRes.text();
-    const $ = cheerio.load(html);
+  const googleUrl =
+    "https://maps.googleapis.com/maps/api/geocode/json" +
+    `?address=${encodeURIComponent(googleQuery)}` +
+    "&language=ja" +
+    "&region=jp" +
+    `&key=${GOOGLE_MAPS_API_KEY}`;
 
-    const venue =
-      $('meta[property="og:title"]').attr("content") ||
-      $('meta[name="twitter:title"]').attr("content");
+  const res = await fetch(googleUrl);
+  const json = await res.json();
 
-    if (!venue) {
-      return res.status(400).json({ error: "venue not found" });
+  if (json.status !== "OK" || !json.results?.length) {
+    return {
+      error: "location not found",
+      google_status: json.status,
+      google_error_message: json.error_message || null,
+      candidates: []
+    };
+  }
+
+  const candidates = json.results.slice(0, 5).map((result, index) => {
+    const components = result.address_components || [];
+
+    function getComponent(type) {
+      const c = components.find(component => component.types.includes(type));
+      return c ? c.long_name : null;
     }
 
-    /* ===== ② まずNominatimで検索 ===== */
-    const nominatimSearchUrl =
-      "https://nominatim.openstreetmap.org/search" +
-      `?q=${encodeURIComponent(venue)}` +
-      "&format=json&limit=1";
+    const country = getComponent("country");
+    const state = getComponent("administrative_area_level_1");
 
-    const nominatimRes = await fetch(nominatimSearchUrl, {
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (compatible; SwarmLocationBot/1.0; +https://example.com)",
-        "Accept": "application/json"
-      }
-    });
+    const city =
+      getComponent("locality") ||
+      getComponent("administrative_area_level_2") ||
+      getComponent("administrative_area_level_3") ||
+      getComponent("sublocality_level_1");
 
-    let provider = null;
-    let lat = null;
-    let lon = null;
-    let country = null;
-    let state = null;
-    let city = null;
-    let formatted_address = null;
+    const lat = result.geometry.location.lat;
+    const lon = result.geometry.location.lng;
+    const shareText = makeShareText(venue, city, state);
 
-    if (nominatimRes.ok) {
-      const nominatimJson = await nominatimRes.json();
-
-      if (nominatimJson.length > 0) {
-        lat = nominatimJson[0].lat;
-        lon = nominatimJson[0].lon;
-        provider = "nominatim";
-
-        /* ===== ③ Nominatim reverse ===== */
-        const reverseUrl =
-          "https://nominatim.openstreetmap.org/reverse" +
-          `?lat=${lat}&lon=${lon}&format=json`;
-
-        const revRes = await fetch(reverseUrl, {
-          headers: {
-            "User-Agent":
-              "Mozilla/5.0 (compatible; SwarmLocationBot/1.0; +https://example.com)",
-            "Accept": "application/json"
-          }
-        });
-
-        if (revRes.ok) {
-          const revJson = await revRes.json();
-          const addr = revJson.address || {};
-
-          country = addr.country || null;
-
-          state =
-            addr.state ||
-            addr.region ||
-            addr.province ||
-            addr.county ||
-            null;
-
-          city =
-            addr.city ||
-            addr.town ||
-            addr.village ||
-            addr.municipality ||
-            null;
-
-          formatted_address = revJson.display_name || null;
-        }
-      }
-    }
-
-    /* ===== ④ Nominatimで見つからなければGoogle Maps Geocoding API ===== */
-    if (!lat || !lon) {
-      if (!GOOGLE_MAPS_API_KEY) {
-        return res.status(200).json({
-          venue,
-          error: "location not found by nominatim, and Google Maps API key is not set",
-          provider: "none"
-        });
-      }
-
-      const googleQuery = `${venue} 日本`;
-
-      const googleUrl =
-        "https://maps.googleapis.com/maps/api/geocode/json" +
-        `?address=${encodeURIComponent(googleQuery)}` +
-        "&language=ja" +
-        "&region=jp" +
-        `&key=${GOOGLE_MAPS_API_KEY}`;
-
-      const googleRes = await fetch(googleUrl);
-      const googleJson = await googleRes.json();
-
-      if (googleJson.status !== "OK" || !googleJson.results.length) {
-        return res.status(200).json({
-          venue,
-          error: "location not found",
-          provider: "google",
-          google_status: googleJson.status,
-          google_error_message: googleJson.error_message || null
-        });
-      }
-
-      const result = googleJson.results[0];
-
-      lat = result.geometry.location.lat;
-      lon = result.geometry.location.lng;
-      formatted_address = result.formatted_address;
-      provider = "google";
-
-      const components = result.address_components || [];
-
-      function getComponent(type) {
-        const c = components.find(component =>
-          component.types.includes(type)
-        );
-        return c ? c.long_name : null;
-      }
-
-      country = getComponent("country");
-
-      state = getComponent("administrative_area_level_1");
-
-      city =
-        getComponent("locality") ||
-        getComponent("administrative_area_level_2") ||
-        getComponent("administrative_area_level_3") ||
-        getComponent("sublocality_level_1");
-    }
-
-    /* ===== ⑤ I'm at 文生成 ===== */
-    let shareText = null;
-
-    if (venue && city && state) {
-      shareText = `I'm at ${venue} in ${city}, ${state}`;
-    } else if (venue && state) {
-      shareText = `I'm at ${venue} in ${state}`;
-    } else if (venue) {
-      shareText = `I'm at ${venue}`;
-    }
-
-    return res.status(200).json({
+    return {
+      id: `google-${index}`,
+      provider: "google",
       venue,
       lat,
       lon,
       country,
       state,
       city,
-      formatted_address,
-      provider,
+      formatted_address: result.formatted_address || null,
+      label: result.formatted_address || `${lat}, ${lon}`,
       shareText
+    };
+  });
+
+  return { candidates };
+}
+
+export default async function handler(req, res) {
+  const { url, provider = "nominatim" } = req.query;
+
+  if (!url) {
+    return res.status(400).json({ error: "url is required" });
+  }
+
+  try {
+    const venue = await getVenueFromSwarm(url);
+
+    if (!venue) {
+      return res.status(400).json({ error: "venue not found" });
+    }
+
+    if (provider === "google") {
+      const result = await searchGoogle(venue);
+
+      return res.status(200).json({
+        venue,
+        provider: "google",
+        candidates: result.candidates || [],
+        error: result.error || null,
+        google_status: result.google_status || null,
+        google_error_message: result.google_error_message || null
+      });
+    }
+
+    const candidates = await searchNominatim(venue);
+
+    return res.status(200).json({
+      venue,
+      provider: "nominatim",
+      candidates,
+      error: candidates.length ? null : "location not found by nominatim"
     });
 
   } catch (e) {
