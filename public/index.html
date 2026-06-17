@@ -45,10 +45,11 @@
       font-weight: bold;
       margin-bottom: 12px;
       word-break: break-word;
+      white-space: pre-wrap;
     }
 
     .candidate-box {
-      margin-top: 20px;
+      margin-top: 24px;
       display: none;
     }
 
@@ -61,11 +62,19 @@
 
     .candidate-title {
       font-weight: bold;
+      font-size: 16px;
     }
 
     .candidate-address {
       color: #555;
       font-size: 14px;
+      margin-top: 4px;
+      word-break: break-word;
+    }
+
+    .candidate-meta {
+      color: #777;
+      font-size: 13px;
       margin-top: 4px;
     }
 
@@ -86,7 +95,7 @@
 
   <p>
     SwarmのチェックインURL、またはURLを含む文章を入力すると、
-    候補地点を表示して、選んだ場所で共有文を生成します。
+    位置情報を取得し、昔ながらの共有文を生成します。
   </p>
 
   <input
@@ -99,17 +108,17 @@
 
   <div id="status" class="status"></div>
 
+  <div id="shareBox" class="share-box">
+    <div id="shareText" class="share-text"></div>
+    <button id="copyButton" onclick="copyShareText()">コピー</button>
+  </div>
+
   <div id="candidateBox" class="candidate-box">
-    <h3>候補地点</h3>
+    <h3>そのほかの候補</h3>
     <div id="candidateList"></div>
     <button id="googleButton" onclick="searchWithGoogle()" style="display:none;">
       Nominatimに良い候補がないのでGoogleで検索
     </button>
-  </div>
-
-  <div id="shareBox" class="share-box">
-    <div id="shareText" class="share-text"></div>
-    <button id="copyButton" onclick="copyShareText()">コピー</button>
   </div>
 
   <pre id="out">ここにJSON結果が表示されます</pre>
@@ -184,12 +193,9 @@
 
       resetResult();
 
-      if (currentLocationHint) {
-        status.textContent =
-          `Nominatimで候補を取得中...（補助キーワード: ${currentLocationHint}）`;
-      } else {
-        status.textContent = "Nominatimで候補を取得中...";
-      }
+      status.textContent = currentLocationHint
+        ? `Nominatimで候補を取得中...（補助キーワード: ${currentLocationHint}）`
+        : "Nominatimで候補を取得中...";
 
       fetchButton.disabled = true;
 
@@ -201,7 +207,8 @@
           ? `候補を取得しました：${data.provider}`
           : "Nominatimでは候補が見つかりませんでした。";
 
-        renderCandidates(data);
+        renderPrimaryCandidate(data);
+        renderOtherCandidates(data);
 
         out.textContent = JSON.stringify(data, null, 2);
 
@@ -217,12 +224,9 @@
 
       resetShareOnly();
 
-      if (currentLocationHint) {
-        status.textContent =
-          `Googleで候補を取得中...（補助キーワード: ${currentLocationHint}）`;
-      } else {
-        status.textContent = "Googleで候補を取得中...";
-      }
+      status.textContent = currentLocationHint
+        ? `Googleで候補を取得中...（補助キーワード: ${currentLocationHint}）`
+        : "Googleで候補を取得中...";
 
       googleButton.disabled = true;
 
@@ -234,7 +238,8 @@
           ? `候補を取得しました：${data.provider}`
           : "Googleでも候補が見つかりませんでした。";
 
-        renderCandidates(data);
+        renderPrimaryCandidate(data);
+        renderOtherCandidates(data);
 
         out.textContent = JSON.stringify(data, null, 2);
 
@@ -245,37 +250,70 @@
       }
     }
 
-    function renderCandidates(data) {
-      candidateList.innerHTML = "";
-      candidateBox.style.display = "block";
-
+    function renderPrimaryCandidate(data) {
       if (!data.candidates || data.candidates.length === 0) {
-        candidateList.innerHTML =
-          "<p>候補が見つかりませんでした。</p>";
+        shareBox.style.display = "none";
+        shareText.textContent = "";
+        copyButton.textContent = "コピー";
+        return;
       }
 
-      data.candidates.forEach((candidate, index) => {
+      const primary = data.candidates[0];
+
+      shareText.textContent = primary.shareText;
+      shareBox.style.display = "block";
+      copyButton.textContent = "コピー";
+
+      status.textContent =
+        `共有文を生成しました：${primary.provider} を使用`;
+    }
+
+    function renderOtherCandidates(data) {
+      candidateList.innerHTML = "";
+
+      if (!data.candidates || data.candidates.length <= 1) {
+        candidateBox.style.display = "block";
+        candidateList.innerHTML = "<p>そのほかの候補はありません。</p>";
+
+        if (data.provider === "nominatim") {
+          googleButton.style.display = "inline-block";
+        } else {
+          googleButton.style.display = "none";
+        }
+
+        return;
+      }
+
+      candidateBox.style.display = "block";
+
+      const others = data.candidates.slice(1);
+
+      others.forEach((candidate, index) => {
         const div = document.createElement("div");
         div.className = "candidate";
 
-        const searchQueryText = candidate.search_query
-          ? `<div class="candidate-address">検索語: ${candidate.search_query}</div>`
-          : "";
+        const candidateName =
+          candidate.search_query ||
+          candidate.display_name_for_user ||
+          candidate.venue ||
+          "候補";
+
+        const candidateAddress =
+          candidate.formatted_address ||
+          candidate.label ||
+          "";
 
         div.innerHTML = `
           <div class="candidate-title">
-            ${index + 1}. ${
-              candidate.display_name_for_user || candidate.venue
-            }
+            ${index + 2}. ${candidateName}
           </div>
           <div class="candidate-address">
-            ${candidate.label || ""}
+            ${candidateAddress}
           </div>
-          <div class="candidate-address">
+          <div class="candidate-meta">
             ${candidate.city || ""} ${candidate.state || ""}
             / ${candidate.provider}
           </div>
-          ${searchQueryText}
         `;
 
         const button = document.createElement("button");

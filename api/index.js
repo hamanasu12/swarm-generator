@@ -2,19 +2,24 @@ import * as cheerio from "cheerio";
 
 const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY;
 
-function makeShareText(venue, city, state, hint = "") {
-
+function makeShareText(venue, city, state, hint = "", url = "") {
   const placeName = hint || venue;
 
+  let text;
+
   if (placeName && city && state) {
-    return `I'm at ${placeName} in ${city}, ${state}`;
+    text = `I'm at ${placeName} in ${city}, ${state}`;
+  } else if (placeName && state) {
+    text = `I'm at ${placeName} in ${state}`;
+  } else {
+    text = `I'm at ${placeName}`;
   }
 
-  if (placeName && state) {
-    return `I'm at ${placeName} in ${state}`;
+  if (url) {
+    text += `\n${url}`;
   }
 
-  return `I'm at ${placeName}`;
+  return text;
 }
 
 function normalizeAddress(addr = {}) {
@@ -65,7 +70,7 @@ function buildSearchQueries(venue, hint = "") {
   return [...new Set(queries)];
 }
 
-async function searchNominatim(venue, hint = "") {
+async function searchNominatim(venue, hint = "", url = "") {
   const searchQueries = buildSearchQueries(venue, hint);
 
   const allItems = [];
@@ -107,7 +112,13 @@ async function searchNominatim(venue, hint = "") {
 
   return allItems.map((item, index) => {
     const addr = normalizeAddress(item.address || {});
-    const shareText = makeShareText(venue, addr.city, addr.state, hint);
+    const shareText = makeShareText(
+      venue,
+      addr.city,
+      addr.state,
+      hint,
+      url
+    );
 
     return {
       id: `nominatim-${index}`,
@@ -127,7 +138,7 @@ async function searchNominatim(venue, hint = "") {
   });
 }
 
-async function searchGoogle(venue, hint = "") {
+async function searchGoogle(venue, hint = "", url = "") {
   if (!GOOGLE_MAPS_API_KEY) {
     return {
       error: "Google Maps API key is not set",
@@ -175,7 +186,14 @@ async function searchGoogle(venue, hint = "") {
 
     const lat = result.geometry.location.lat;
     const lon = result.geometry.location.lng;
-    const shareText = makeShareText(venue, city, state, hint);
+
+    const shareText = makeShareText(
+      venue,
+      city,
+      state,
+      hint,
+      url
+    );
 
     return {
       id: `google-${index}`,
@@ -212,7 +230,7 @@ export default async function handler(req, res) {
     }
 
     if (provider === "google") {
-      const result = await searchGoogle(venue, hint);
+      const result = await searchGoogle(venue, hint, url);
 
       return res.status(200).json({
         venue,
@@ -225,7 +243,7 @@ export default async function handler(req, res) {
       });
     }
 
-    const candidates = await searchNominatim(venue, hint);
+    const candidates = await searchNominatim(venue, hint, url);
 
     return res.status(200).json({
       venue,
