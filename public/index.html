@@ -111,6 +111,7 @@
   <div id="shareBox" class="share-box">
     <div id="shareText" class="share-text"></div>
     <button id="copyButton" onclick="copyShareText()">コピー</button>
+    <button id="xPostButton" onclick="postToX()">Xで投稿</button>
   </div>
 
   <div id="candidateBox" class="candidate-box">
@@ -156,6 +157,25 @@
     function extractLocationHint(text) {
       const match = text.match(/、([^、。]+?)にいました/);
       return match ? match[1].trim() : "";
+    }
+
+    function escapeRegExp(text) {
+      return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    }
+
+    function getShareTextForX() {
+      const text = shareText.textContent.trim();
+
+      if (!text || !currentSwarmUrl) return text;
+
+      let foundUrl = false;
+      const swarmUrlPattern = new RegExp(escapeRegExp(currentSwarmUrl), "g");
+
+      return text.replace(swarmUrlPattern, () => {
+        if (foundUrl) return "";
+        foundUrl = true;
+        return currentSwarmUrl;
+      }).replace(/\n{3,}/g, "\n\n").trim();
     }
 
     async function fetchCandidates(provider) {
@@ -273,7 +293,9 @@
 
       if (!data.candidates || data.candidates.length <= 1) {
         candidateBox.style.display = "block";
-        candidateList.innerHTML = "<p>そのほかの候補はありません。</p>";
+        const message = document.createElement("p");
+        message.textContent = "そのほかの候補はありません。";
+        candidateList.appendChild(message);
 
         if (data.provider === "nominatim") {
           googleButton.style.display = "inline-block";
@@ -303,18 +325,18 @@
           candidate.label ||
           "";
 
-        div.innerHTML = `
-          <div class="candidate-title">
-            ${index + 2}. ${candidateName}
-          </div>
-          <div class="candidate-address">
-            ${candidateAddress}
-          </div>
-          <div class="candidate-meta">
-            ${candidate.city || ""} ${candidate.state || ""}
-            / ${candidate.provider}
-          </div>
-        `;
+        const title = document.createElement("div");
+        title.className = "candidate-title";
+        title.textContent = `${index + 2}. ${candidateName}`;
+
+        const address = document.createElement("div");
+        address.className = "candidate-address";
+        address.textContent = candidateAddress;
+
+        const meta = document.createElement("div");
+        meta.className = "candidate-meta";
+        meta.textContent =
+          `${candidate.city || ""} ${candidate.state || ""} / ${candidate.provider}`;
 
         const button = document.createElement("button");
         button.textContent = "この候補で作成";
@@ -322,6 +344,9 @@
           selectCandidate(candidate);
         };
 
+        div.appendChild(title);
+        div.appendChild(address);
+        div.appendChild(meta);
         div.appendChild(button);
         candidateList.appendChild(div);
       });
@@ -362,6 +387,17 @@
           copyButton.textContent = "コピー";
         }, 1500);
       }
+    }
+
+    function postToX() {
+      const text = getShareTextForX();
+
+      if (!text) return;
+
+      const intentUrl =
+        "https://twitter.com/intent/tweet?text=" + encodeURIComponent(text);
+
+      window.open(intentUrl, "_blank", "noopener,noreferrer");
     }
 
     function resetResult() {
