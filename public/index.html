@@ -117,6 +117,7 @@
   <div id="candidateBox" class="candidate-box">
     <h3>そのほかの候補</h3>
     <div id="candidateList"></div>
+    <p id="googleHint" style="display:none;">良い候補がないときはこちら↓</p>
     <button id="googleButton" onclick="searchWithGoogle()" style="display:none;">
       Nominatimに良い候補がないのでGoogleで検索
     </button>
@@ -130,6 +131,7 @@
     const status = document.getElementById("status");
     const candidateBox = document.getElementById("candidateBox");
     const candidateList = document.getElementById("candidateList");
+    const googleHint = document.getElementById("googleHint");
     const googleButton = document.getElementById("googleButton");
     const shareBox = document.getElementById("shareBox");
     const shareText = document.getElementById("shareText");
@@ -157,6 +159,12 @@
     function extractLocationHint(text) {
       const match = text.match(/、([^、。]+?)にいました/);
       return match ? match[1].trim() : "";
+    }
+
+    function setGoogleSearchVisible(visible) {
+      const display = visible ? "block" : "none";
+      googleHint.style.display = display;
+      googleButton.style.display = display;
     }
 
     function escapeRegExp(text) {
@@ -298,9 +306,9 @@
         candidateList.appendChild(message);
 
         if (data.provider === "nominatim") {
-          googleButton.style.display = "inline-block";
+          setGoogleSearchVisible(true);
         } else {
-          googleButton.style.display = "none";
+          setGoogleSearchVisible(false);
         }
 
         return;
@@ -352,9 +360,9 @@
       });
 
       if (data.provider === "nominatim") {
-        googleButton.style.display = "inline-block";
+        setGoogleSearchVisible(true);
       } else {
-        googleButton.style.display = "none";
+        setGoogleSearchVisible(false);
       }
     }
 
@@ -404,7 +412,7 @@
       status.textContent = "";
       candidateBox.style.display = "none";
       candidateList.innerHTML = "";
-      googleButton.style.display = "none";
+      setGoogleSearchVisible(false);
       resetShareOnly();
       out.textContent = "";
     }
@@ -424,7 +432,7 @@
       status.textContent = "";
       candidateBox.style.display = "none";
       candidateList.innerHTML = "";
-      googleButton.style.display = "none";
+      setGoogleSearchVisible(false);
 
       shareBox.style.display = "none";
       shareText.textContent = "";
