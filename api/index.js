@@ -1,6 +1,18 @@
 import * as cheerio from "cheerio";
 
 const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY;
+const ALLOWED_SWARM_HOSTS = new Set([
+  "swarmapp.com",
+  "www.swarmapp.com",
+  "ja.swarmapp.com",
+  "foursquare.com",
+  "www.foursquare.com",
+  "ja.foursquare.com"
+]);
+const SWARM_CHECKIN_PATH = /^\/user\/\d+\/checkin\/[A-Za-z0-9]+\/?$/;
+const MAX_REDIRECTS = 3;
+const MAX_SWARM_RESPONSE_BYTES = 1024 * 1024;
+const SWARM_FETCH_TIMEOUT_MS = 10000;
 
 function makeShareText(venue, city, state, hint = "", url = "") {
   const placeName = hint || venue;
@@ -43,12 +55,115 @@ function normalizeAddress(addr = {}) {
   return { country, state, city };
 }
 
-async function getVenueFromSwarm(url) {
-  const swarmRes = await fetch(url, {
-    headers: { "User-Agent": "Mozilla/5.0" }
-  });
+function validateSwarmUrl(value) {
+  if (typeof value !== "string") {
+    throw new Error("invalid Swarm URL");
+  }
 
-  const html = await swarmRes.text();
+  let parsed;
+
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error("invalid Swarm URL");
+  }
+
+  const hostname = parsed.hostname.toLowerCase();
+
+  if (
+    parsed.protocol !== "https:" ||
+    (parsed.port && parsed.port !== "443") ||
+    parsed.username ||
+    parsed.password ||
+    !ALLOWED_SWARM_HOSTS.has(hostname) ||
+    !SWARM_CHECKIN_PATH.test(parsed.pathname)
+  ) {
+    throw new Error("only official Swarm check-in URLs are allowed");
+  }
+
+  parsed.hash = "";
+  return parsed;
+}
+
+function isRedirect(status) {
+  return [301, 302, 303, 307, 308].includes(status);
+}
+
+async function readTextWithLimit(response) {
+  const contentLength = Number(response.headers.get("content-length"));
+
+  if (
+    Number.isFinite(contentLength) &&
+    contentLength > MAX_SWARM_RESPONSE_BYTES
+  ) {
+    throw new Error("Swarm response is too large");
+  }
+
+  if (!response.body) {
+    return "";
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let totalBytes = 0;
+  let text = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+
+    if (done) break;
+
+    totalBytes += value.byteLength;
+
+    if (totalBytes > MAX_SWARM_RESPONSE_BYTES) {
+      await reader.cancel();
+      throw new Error("Swarm response is too large");
+    }
+
+    text += decoder.decode(value, { stream: true });
+  }
+
+  return text + decoder.decode();
+}
+
+async function fetchSwarmPage(url) {
+  let currentUrl = validateSwarmUrl(url);
+
+  for (let redirectCount = 0; redirectCount <= MAX_REDIRECTS; redirectCount++) {
+    const response = await fetch(currentUrl, {
+      headers: { "User-Agent": "Mozilla/5.0" },
+      redirect: "manual",
+      signal: AbortSignal.timeout(SWARM_FETCH_TIMEOUT_MS)
+    });
+
+    if (isRedirect(response.status)) {
+      const location = response.headers.get("location");
+
+      if (!location || redirectCount === MAX_REDIRECTS) {
+        throw new Error("invalid Swarm redirect");
+      }
+
+      try {
+        currentUrl = validateSwarmUrl(new URL(location, currentUrl).href);
+      } catch {
+        throw new Error("invalid Swarm redirect");
+      }
+      continue;
+    }
+
+    if (!response.ok) {
+      throw new Error(`Swarm request failed: ${response.status}`);
+    }
+
+    return await readTextWithLimit(response);
+  }
+
+  throw new Error("too many Swarm redirects");
+}
+
+async function getVenueFromSwarm(url) {
+  const html = await fetchSwarmPage(url);
+
   const $ = cheerio.load(html);
 
   return (
@@ -223,6 +338,7 @@ export default async function handler(req, res) {
   }
 
   try {
+    validateSwarmUrl(url);
     const venue = await getVenueFromSwarm(url);
 
     if (!venue) {
@@ -255,6 +371,14 @@ export default async function handler(req, res) {
 
   } catch (e) {
     console.error(e);
-    return res.status(500).json({ error: e.message });
+
+    if (
+      e.message === "invalid Swarm URL" ||
+      e.message === "only official Swarm check-in URLs are allowed"
+    ) {
+      return res.status(400).json({ error: e.message });
+    }
+
+    return res.status(502).json({ error: "failed to fetch Swarm check-in" });
   }
 }
