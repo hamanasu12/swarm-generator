@@ -104,6 +104,7 @@
   >
 
   <button id="fetchButton" onclick="run()">取得</button>
+  <button onclick="pasteFromClipboard()">貼り付け</button>
   <button onclick="clearForm()">クリア</button>
 
   <div id="status" class="status"></div>
@@ -148,6 +149,19 @@
         run();
       }
     });
+
+    async function pasteFromClipboard() {
+      try {
+        const text = await navigator.clipboard.readText();
+        urlInput.value = text;
+        status.textContent = "";
+        urlInput.focus();
+      } catch (e) {
+        status.textContent =
+          "貼り付けできませんでした。ブラウザのクリップボード権限を確認してください。";
+        urlInput.focus();
+      }
+    }
 
     function extractSwarmUrl(text) {
       const match = text.match(
