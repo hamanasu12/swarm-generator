@@ -107,10 +107,11 @@
   <button onclick="pasteFromClipboard()">貼り付け</button>
   <button onclick="clearForm()">クリア</button>
 
-  <div id="status" class="status"></div>
+  <div id="status" class="status" role="status" aria-live="polite"></div>
 
-  <div id="shareBox" class="share-box">
+  <div id="shareBox" class="share-box" tabindex="-1">
     <div id="shareText" class="share-text"></div>
+    <div id="selectedAddress" class="candidate-address"></div>
     <button id="copyButton" onclick="copyShareText()">コピー</button>
     <button id="xPostButton" onclick="postToX()">Xで投稿</button>
   </div>
@@ -119,7 +120,7 @@
     <h3>そのほかの候補</h3>
     <div id="candidateList"></div>
     <h3 id="googleHint" style="display:none;">良い候補がないときはこちら↓</h3>
-    <button id="googleButton" onclick="searchWithGoogle()" style="display:none;">
+    <button id="googleButton" style="display:none;">
       Nominatimに良い候補がないのでGoogleで検索
     </button>
   </div>
@@ -137,6 +138,7 @@
     const googleButton = document.getElementById("googleButton");
     const shareBox = document.getElementById("shareBox");
     const shareText = document.getElementById("shareText");
+    const selectedAddress = document.getElementById("selectedAddress");
     const copyButton = document.getElementById("copyButton");
     const out = document.getElementById("out");
 
@@ -212,6 +214,17 @@
           ? "チェックインの施設名を取得できませんでした。共有URLを確認してください。"
           : "チェックインを取得できませんでした。共有URLを確認し、再度お試しください。");
       }
+      if (provider === "google" && data.error && data.google_status !== "ZERO_RESULTS") {
+        if (data.error === "Google Maps API key is not set") {
+          throw new Error("Google検索のAPIキーが設定されていません。管理者による設定が必要です。");
+        }
+        if (data.google_status === "REQUEST_DENIED") {
+          throw new Error(/billing/i.test(data.google_error_message || "")
+            ? "Google検索を利用できません。Google Cloudの課金設定を有効にする必要があります。"
+            : "Google検索が拒否されました。管理者がAPIの有効化とキーの利用制限を確認してください。");
+        }
+        throw new Error("Google検索を利用できません。時間をおいて再度お試しください。");
+      }
       return data;
     }
 
@@ -265,8 +278,6 @@
     async function searchWithGoogle() {
       if (!currentSwarmUrl) return;
 
-      resetShareOnly();
-
       status.textContent = currentLocationHint
         ? `Googleで候補を取得中...（補助キーワード: ${currentLocationHint}）`
         : "Googleで候補を取得中...";
@@ -275,6 +286,11 @@
 
       try {
         const data = await fetchCandidates("google");
+        if (!data.candidates?.length) {
+          status.textContent = "Googleでは候補が見つかりませんでした。元の候補と共有文を残しています。";
+          out.textContent = JSON.stringify(data, null, 2);
+          return;
+        }
         latestData = data;
 
         status.textContent = data.candidates?.length
@@ -287,7 +303,7 @@
         out.textContent = JSON.stringify(data, null, 2);
 
       } catch (e) {
-        status.textContent = "取得に失敗しました。";
+        status.textContent = e.message + " 元の候補と共有文を残しています。";
         out.textContent = "エラーが発生しました: " + e.message;
       } finally {
         googleButton.disabled = false;
@@ -298,6 +314,7 @@
       if (!data.candidates || data.candidates.length === 0) {
         shareBox.style.display = "none";
         shareText.textContent = "";
+      selectedAddress.textContent = "";
         copyButton.textContent = "コピー";
         return;
       }
@@ -305,6 +322,7 @@
       const primary = data.candidates[0];
 
       shareText.textContent = primary.shareText;
+      selectedAddress.textContent = primary.formatted_address || primary.label || "";
       shareBox.style.display = "block";
       copyButton.textContent = "コピー";
 
@@ -365,7 +383,7 @@
         const button = document.createElement("button");
         button.textContent = "この候補で作成";
         button.onclick = function() {
-          selectCandidate(candidate);
+          selectCandidate(candidate, button);
         };
 
         div.appendChild(title);
@@ -382,14 +400,22 @@
       }
     }
 
-    function selectCandidate(candidate) {
+    function selectCandidate(candidate, selectedButton) {
+      candidateList.querySelectorAll("button").forEach(button => {
+        const selected = button === selectedButton;
+        button.textContent = selected ? "選択中" : "この候補で作成";
+        button.setAttribute("aria-pressed", String(selected));
+      });
       shareText.textContent = candidate.shareText;
+      selectedAddress.textContent = candidate.formatted_address || candidate.label || "";
       shareBox.style.display = "block";
 
       status.textContent =
         `共有文を生成しました：${candidate.provider} を使用`;
 
       out.textContent = JSON.stringify(candidate, null, 2);
+      shareBox.focus({ preventScroll: true });
+      shareBox.scrollIntoView?.({ behavior: "smooth", block: "center" });
 
       copyButton.textContent = "コピー";
     }
@@ -436,6 +462,7 @@
     function resetShareOnly() {
       shareBox.style.display = "none";
       shareText.textContent = "";
+      selectedAddress.textContent = "";
       copyButton.textContent = "コピー";
     }
 
@@ -452,12 +479,14 @@
 
       shareBox.style.display = "none";
       shareText.textContent = "";
+      selectedAddress.textContent = "";
 
       out.textContent = "ここにJSON結果が表示されます";
       copyButton.textContent = "コピー";
 
       urlInput.focus();
     }
+    googleButton.addEventListener("click", searchWithGoogle);
     Object.assign(window, { run, pasteFromClipboard, clearForm,
       copyShareText, postToX, searchWithGoogle });
   </script>

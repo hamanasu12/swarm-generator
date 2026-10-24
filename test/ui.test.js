@@ -44,18 +44,59 @@ test('UI: paste, generate, choose candidate, copy, X intent, Google fallback and
   assert.equal(el('googleButton').style.display, 'block');
   el('candidateList').querySelector('button').click();
   assert.equal(el('shareText').textContent, data().candidates[1].shareText);
+  assert.equal(el('candidateList').querySelector('button').textContent, '選択中');
+  assert.equal(el('selectedAddress').textContent, '住所2');
+  assert.equal(w.document.activeElement, el('shareBox'));
   await w.copyShareText();
   assert.equal(copied, el('shareText').textContent);
   w.postToX();
   assert.equal(new URL(opened[0]).searchParams.get('text'), copied);
   assert.equal(opened[2], 'noopener,noreferrer');
-  await w.searchWithGoogle();
+  el('googleButton').click();
+  await new Promise(resolve => setImmediate(resolve));
   assert.equal(el('googleButton').style.display, 'none');
   assert.ok(el('status').textContent.includes('google'));
   w.clearForm();
   assert.equal(el('url').value, '');
   assert.equal(el('shareText').textContent, '');
   assert.equal(el('candidateBox').style.display, 'none');
+});
+
+test('UI: Google billing denial, missing key and zero results preserve selected candidate and allow retry', async t => {
+  const w = setup(t), el = id => w.document.getElementById(id);
+  el('url').value = url;
+  w.fetch = async () => ({ ok: true, json: async () => data() });
+  await w.run();
+  el('candidateList').querySelector('button').click();
+  const selected = el('shareText').textContent;
+  for (const [response, message] of [
+    [{ error: 'location not found', google_status: 'REQUEST_DENIED', google_error_message: 'You must enable Billing on the Google Cloud Project' }, '課金設定'],
+    [{ error: 'Google Maps API key is not set' }, 'APIキー'],
+    [{ error: 'location not found', google_status: 'ZERO_RESULTS' }, '見つかりません']
+  ]) {
+    w.fetch = async () => ({ ok: true, json: async () => ({ provider: 'google', candidates: [], ...response }) });
+    el('googleButton').click();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.ok(el('status').textContent.includes(message));
+    assert.equal(el('shareText').textContent, selected);
+    assert.equal(el('selectedAddress').textContent, '住所2');
+    assert.equal(el('candidateList').querySelector('button').textContent, '選択中');
+    assert.equal(el('googleButton').disabled, false);
+    assert.equal(el('googleButton').style.display, 'block');
+  }
+});
+
+test('UI: candidates with identical share text still visibly change the selected address', async t => {
+  const w = setup(t), el = id => w.document.getElementById(id);
+  el('url').value = url;
+  const result = data();
+  result.candidates[1].shareText = result.candidates[0].shareText;
+  w.fetch = async () => ({ ok: true, json: async () => result });
+  await w.run();
+  assert.equal(el('selectedAddress').textContent, '住所1');
+  el('candidateList').querySelector('button').click();
+  assert.equal(el('selectedAddress').textContent, '住所2');
+  assert.equal(el('candidateList').querySelector('button').getAttribute('aria-pressed'), 'true');
 });
 
 test('UI: empty candidates offer Google; API failures are not presented as no results', async t => {
