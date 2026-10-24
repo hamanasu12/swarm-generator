@@ -95,7 +95,7 @@
 
   <p>
     SwarmのチェックインURL、またはURLを含む文章を入力すると、
-    位置情報を取得し、昔ながらの共有文を生成します。
+    位置情報を取得し、昔ながらの共有文を生成します。新しい共有URLと従来のURLに対応しています。
   </p>
 
   <input
@@ -126,7 +126,8 @@
 
   <pre id="out">ここにJSON結果が表示されます</pre>
 
-  <script>
+  <script type="module">
+    import { extractSwarmUrl } from "./swarm-url.js";
     const urlInput = document.getElementById("url");
     const fetchButton = document.getElementById("fetchButton");
     const status = document.getElementById("status");
@@ -161,13 +162,6 @@
           "貼り付けできませんでした。ブラウザのクリップボード権限を確認してください。";
         urlInput.focus();
       }
-    }
-
-    function extractSwarmUrl(text) {
-      const match = text.match(
-        /https?:\/\/(?:ja\.)?swarmapp\.com\/user\/\d+\/checkin\/[A-Za-z0-9]+(?:\?[^ \n\r\t、。]*)?/
-      );
-      return match ? match[0] : null;
     }
 
     function extractLocationHint(text) {
@@ -212,7 +206,13 @@
       }
 
       const res = await fetch(apiUrl);
-      return await res.json();
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error === "venue not found"
+          ? "チェックインの施設名を取得できませんでした。共有URLを確認してください。"
+          : "チェックインを取得できませんでした。共有URLを確認し、再度お試しください。");
+      }
+      return data;
     }
 
     async function run() {
@@ -255,6 +255,7 @@
         out.textContent = JSON.stringify(data, null, 2);
 
       } catch (e) {
+        status.textContent = "取得に失敗しました。";
         out.textContent = "エラーが発生しました: " + e.message;
       } finally {
         fetchButton.disabled = false;
@@ -286,6 +287,7 @@
         out.textContent = JSON.stringify(data, null, 2);
 
       } catch (e) {
+        status.textContent = "取得に失敗しました。";
         out.textContent = "エラーが発生しました: " + e.message;
       } finally {
         googleButton.disabled = false;
@@ -456,6 +458,8 @@
 
       urlInput.focus();
     }
+    Object.assign(window, { run, pasteFromClipboard, clearForm,
+      copyShareText, postToX, searchWithGoogle });
   </script>
 
 </body>

@@ -1,18 +1,19 @@
 import * as cheerio from "cheerio";
+import { validateSwarmUrl } from "../public/swarm-url.js";
 
 const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY;
-const ALLOWED_SWARM_HOSTS = new Set([
-  "swarmapp.com",
-  "www.swarmapp.com",
-  "ja.swarmapp.com",
-  "foursquare.com",
-  "www.foursquare.com",
-  "ja.foursquare.com"
-]);
-const SWARM_CHECKIN_PATH = /^\/user\/\d+\/checkin\/[A-Za-z0-9]+\/?$/;
 const MAX_REDIRECTS = 3;
 const MAX_SWARM_RESPONSE_BYTES = 1024 * 1024;
 const SWARM_FETCH_TIMEOUT_MS = 10000;
+const JAPAN_PREFECTURES = [
+  "北海道", "青森県", "岩手県", "宮城県", "秋田県", "山形県", "福島県",
+  "茨城県", "栃木県", "群馬県", "埼玉県", "千葉県", "東京都", "神奈川県",
+  "新潟県", "富山県", "石川県", "福井県", "山梨県", "長野県", "岐阜県",
+  "静岡県", "愛知県", "三重県", "滋賀県", "京都府", "大阪府", "兵庫県",
+  "奈良県", "和歌山県", "鳥取県", "島根県", "岡山県", "広島県", "山口県",
+  "徳島県", "香川県", "愛媛県", "高知県", "福岡県", "佐賀県", "長崎県",
+  "熊本県", "大分県", "宮崎県", "鹿児島県", "沖縄県"
+];
 
 function makeShareText(venue, city, state, hint = "", url = "") {
   const placeName = hint || venue;
@@ -23,6 +24,8 @@ function makeShareText(venue, city, state, hint = "", url = "") {
     text = `I'm at ${placeName} in ${city}, ${state}`;
   } else if (placeName && state) {
     text = `I'm at ${placeName} in ${state}`;
+  } else if (placeName && city) {
+    text = `I'm at ${placeName} in ${city}`;
   } else {
     text = `I'm at ${placeName}`;
   }
@@ -36,11 +39,17 @@ function makeShareText(venue, city, state, hint = "", url = "") {
 
 function normalizeAddress(addr = {}) {
   const country = addr.country || null;
+  // Nominatim sometimes returns only the ISO subdivision code for Japan.
+  const prefectureCode = /^JP-(\d{2})$/.exec(addr["ISO3166-2-lvl4"] || "");
+  const prefecture = prefectureCode
+    ? JAPAN_PREFECTURES[Number(prefectureCode[1]) - 1]
+    : null;
 
   const state =
     addr.state ||
     addr.region ||
     addr.province ||
+    prefecture ||
     addr.county ||
     null;
 
@@ -53,36 +62,6 @@ function normalizeAddress(addr = {}) {
     null;
 
   return { country, state, city };
-}
-
-function validateSwarmUrl(value) {
-  if (typeof value !== "string") {
-    throw new Error("invalid Swarm URL");
-  }
-
-  let parsed;
-
-  try {
-    parsed = new URL(value);
-  } catch {
-    throw new Error("invalid Swarm URL");
-  }
-
-  const hostname = parsed.hostname.toLowerCase();
-
-  if (
-    parsed.protocol !== "https:" ||
-    (parsed.port && parsed.port !== "443") ||
-    parsed.username ||
-    parsed.password ||
-    !ALLOWED_SWARM_HOSTS.has(hostname) ||
-    !SWARM_CHECKIN_PATH.test(parsed.pathname)
-  ) {
-    throw new Error("only official Swarm check-in URLs are allowed");
-  }
-
-  parsed.hash = "";
-  return parsed;
 }
 
 function isRedirect(status) {
@@ -138,6 +117,7 @@ async function fetchSwarmPage(url) {
 
     if (isRedirect(response.status)) {
       const location = response.headers.get("location");
+      await response.body?.cancel();
 
       if (!location || redirectCount === MAX_REDIRECTS) {
         throw new Error("invalid Swarm redirect");
@@ -161,16 +141,34 @@ async function fetchSwarmPage(url) {
   throw new Error("too many Swarm redirects");
 }
 
-async function getVenueFromSwarm(url) {
-  const html = await fetchSwarmPage(url);
-
+export function extractVenueFromHtml(html, url = "") {
   const $ = cheerio.load(html);
+  // New share pages embed JSON, not just a venue-only Open Graph title.
+  // Parse only the assignment's JSON; never execute remote JavaScript.
+  for (const script of $("script:not([src])").toArray()) {
+    const match = $(script).text().match(
+      /^\s*window\.PREFETCHED_SHARED_CONTENT\s*=\s*(\{[\s\S]*\})\s*;?\s*$/
+    );
+    if (!match) continue;
+    try {
+      const name = JSON.parse(match[1])?.venue?.name;
+      if (typeof name === "string" && name.trim()) return name.trim();
+    } catch { /* Fall back to the page's metadata. */ }
+  }
 
-  return (
-    $('meta[property="og:title"]').attr("content") ||
-    $('meta[name="twitter:title"]').attr("content") ||
-    null
-  );
+  const ogTitle = $('meta[property="og:title"]').attr("content")?.trim();
+  const twitterTitle = $('meta[name="twitter:title"]').attr("content")?.trim();
+  const isNewPage = url.startsWith("https://app.foursquare.com/share/checkin/") || $('meta[property="og:url"]').attr("content")
+    ?.startsWith("https://app.foursquare.com/share/checkin/");
+  // New titles include the person's name. Do not send that to geocoders.
+  if (isNewPage) {
+    return (ogTitle || twitterTitle || "").match(/^.+['’]s check in at (.+)$/)?.[1]?.trim() || null;
+  }
+  return ogTitle || twitterTitle || null;
+}
+
+async function getVenueFromSwarm(url) {
+  return extractVenueFromHtml(await fetchSwarmPage(url), url);
 }
 
 function buildSearchQueries(venue, hint = "") {
