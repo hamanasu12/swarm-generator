@@ -27,6 +27,11 @@ test('last reservation succeeds; exhausted quota blocks', async () => {
   await assert.rejects(reserveGoogleRequest({ env, fetchImpl }), e => e.code === 'google_monthly_limit' && e.quota.remaining === 0);
 });
 
+test('future-month initialization blocks Google until the billing month starts', async () => {
+  await assert.rejects(reserveGoogleRequest({ env, fetchImpl: async () => Response.json({ result: [-2, 0] }) }),
+    { code: 'google_budget_not_started' });
+});
+
 test('missing storage, corruption and uncertain responses fail closed without retry', async () => {
   await assert.rejects(reserveGoogleRequest({ env: {}, fetchImpl: () => assert.fail('no request') }), { code: 'google_budget_unavailable' });
   for (const response of [

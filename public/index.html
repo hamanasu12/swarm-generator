@@ -226,6 +226,9 @@
       if (data.error === "google_budget_unavailable") {
         throw new Error("検索回数を確認できないため、課金防止のためGoogle検索を停止しています。時間をおいて再度お試しください。");
       }
+      if (data.error === "google_budget_not_started") {
+        throw new Error("Google検索は翌月分の開始待ちです。米国太平洋時間の月初0時（日本時間16時、冬時間は17時）から利用できます。");
+      }
       if (!res.ok) {
         throw new Error(data.error === "venue not found"
           ? "チェックインの施設名を取得できませんでした。共有URLを確認してください。"

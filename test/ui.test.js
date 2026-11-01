@@ -55,6 +55,7 @@ test('UI: storage failure and quota exhaustion preserve chosen candidate', async
   el('candidateList').querySelector('button').click();
   const selected = el('shareText').textContent;
   for (const [error, message, disabled] of [
+    ['google_budget_not_started', '翌月分の開始待ち', false],
     ['google_budget_unavailable', '課金防止', false],
     ['google_monthly_limit', '上限', true]
   ]) {

@@ -14,7 +14,7 @@ try {
   assert.equal(results.filter(([allowed]) => allowed === 1).length, 5);
   assert.equal(await redisCommand(['HGET', key, 'used']), '9000');
   assert.deepEqual(await reserve('2026-12'), [1, 1]);
-  assert.deepEqual(await reserve('2026-11'), [-1, 0]);
+  assert.deepEqual(await reserve('2026-11'), [-2, 0]);
   assert.equal(await redisCommand(['HGET', key, 'used']), '1');
   for (const [month, used] of [['broken', '0'], ['2026-00', '0'], ['2026-13', '0'], ['2026-11', '-1'], ['2026-11', '1.5'], ['2026-11', 'bad']]) {
     await redisCommand(['HSET', key, 'month', month, 'used', used]);
