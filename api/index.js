@@ -1,5 +1,6 @@
 import * as cheerio from "cheerio";
 import { validateSwarmUrl } from "../public/swarm-url.js";
+import { reserveGoogleRequest, GoogleBudgetError } from "../lib/google-budget.js";
 
 const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY;
 const MAX_REDIRECTS = 3;
@@ -268,7 +269,12 @@ async function searchGoogle(venue, hint = "", url = "") {
     "&region=jp" +
     `&key=${GOOGLE_MAPS_API_KEY}`;
 
-  const res = await fetch(googleUrl);
+  // Reserve before sending, including failures/timeouts. Never refund or retry:
+  // an uncertain response may still have been billed by Google.
+  const googleQuota = await reserveGoogleRequest();
+  const res = await fetch(googleUrl, {
+    redirect: "error", signal: AbortSignal.timeout(10000)
+  });
   const json = await res.json();
 
   if (json.status !== "OK" || !json.results?.length) {
@@ -276,6 +282,7 @@ async function searchGoogle(venue, hint = "", url = "") {
       error: "location not found",
       google_status: json.status,
       google_error_message: json.error_message || null,
+      googleQuota,
       candidates: []
     };
   }
@@ -325,10 +332,11 @@ async function searchGoogle(venue, hint = "", url = "") {
     };
   });
 
-  return { candidates };
+  return { candidates, googleQuota };
 }
 
 export default async function handler(req, res) {
+  res.setHeader?.("Cache-Control", "no-store");
   const { url, provider = "nominatim", hint = "" } = req.query;
 
   if (!url) {
@@ -353,7 +361,8 @@ export default async function handler(req, res) {
         candidates: result.candidates || [],
         error: result.error || null,
         google_status: result.google_status || null,
-        google_error_message: result.google_error_message || null
+        google_error_message: result.google_error_message || null,
+        googleQuota: result.googleQuota || null
       });
     }
 
@@ -368,6 +377,11 @@ export default async function handler(req, res) {
     });
 
   } catch (e) {
+    if (e instanceof GoogleBudgetError) {
+      return res.status(e.code === "google_monthly_limit" ? 429 : 503).json({
+        error: e.code, provider: "google", candidates: [], googleQuota: e.quota
+      });
+    }
     console.error(e);
 
     if (

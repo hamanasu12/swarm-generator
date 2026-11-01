@@ -22,6 +22,51 @@ function data(provider = 'nominatim') {
   })) };
 }
 
+test('UI: one Google request while busy; last allowance disables further attempts including after clear', async t => {
+  const w = setup(t), el = id => w.document.getElementById(id);
+  el('url').value = url;
+  w.fetch = async () => ({ ok: true, json: async () => data() });
+  await w.run();
+  let complete, calls = 0;
+  w.fetch = () => { calls++; return new Promise(resolve => { complete = resolve; }); };
+  const pending = w.searchWithGoogle();
+  await w.searchWithGoogle();
+  assert.equal(calls, 1);
+  assert.equal(el('googleButton').disabled, true);
+  complete({ ok: true, json: async () => ({ ...data('google'), googleQuota: { remaining: 0, limit: 9000 } }) });
+  await pending;
+  assert.ok(el('status').textContent.includes('google'));
+  assert.ok(el('googleQuota').textContent.includes('残り：0回'));
+  assert.equal(el('googleButton').disabled, true);
+  w.clearForm();
+  el('url').value = url;
+  w.fetch = async () => ({ ok: true, json: async () => data() });
+  await w.run();
+  w.fetch = () => assert.fail('quota must remain exhausted');
+  await w.searchWithGoogle();
+  assert.equal(el('googleButton').disabled, true);
+});
+
+test('UI: storage failure and quota exhaustion preserve chosen candidate', async t => {
+  const w = setup(t), el = id => w.document.getElementById(id);
+  el('url').value = url;
+  w.fetch = async () => ({ ok: true, json: async () => data() });
+  await w.run();
+  el('candidateList').querySelector('button').click();
+  const selected = el('shareText').textContent;
+  for (const [error, message, disabled] of [
+    ['google_budget_unavailable', '課金防止', false],
+    ['google_monthly_limit', '上限', true]
+  ]) {
+    w.fetch = async () => ({ ok: false, json: async () => ({ error }) });
+    await w.searchWithGoogle();
+    assert.ok(el('status').textContent.includes(message));
+    assert.equal(el('shareText').textContent, selected);
+    assert.equal(el('selectedAddress').textContent, '住所2');
+    assert.equal(el('googleButton').disabled, disabled);
+  }
+});
+
 test('UI: paste, generate, choose candidate, copy, X intent, Google fallback and clear', async t => {
   const w = setup(t);
   const el = id => w.document.getElementById(id);

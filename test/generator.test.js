@@ -133,6 +133,15 @@ test("Japanese ISO prefecture fallback and city-only addresses retain location",
 });
 
 test("Google geocoding preserves venue, hint, address, and URL for new links", async t => {
+  const saved = { ...process.env };
+  process.env.UPSTASH_REDIS_REST_URL = 'https://budget.example';
+  process.env.UPSTASH_REDIS_REST_TOKEN = 'test-token';
+  t.after(() => {
+    for (const key of ['UPSTASH_REDIS_REST_URL', 'UPSTASH_REDIS_REST_TOKEN']) {
+      if (saved[key] === undefined) delete process.env[key];
+      else process.env[key] = saved[key];
+    }
+  });
   const original = process.env.GOOGLE_MAPS_API_KEY;
   process.env.GOOGLE_MAPS_API_KEY = 'test-key';
   t.after(() => {
@@ -142,6 +151,7 @@ test("Google geocoding preserves venue, hint, address, and URL for new links", a
   const { default: googleHandler } = await import('../api/index.js?google-test');
   t.mock.method(globalThis, 'fetch', async input => {
     if (String(input) === newUrl) return new Response(newHtml);
+    if (String(input) === 'https://budget.example') return Response.json({ result: [1, 9000] });
     const target = new URL(input);
     assert.equal(target.hostname, 'maps.googleapis.com');
     assert.equal(target.searchParams.get('address'), '駅前カフェ');
@@ -155,5 +165,6 @@ test("Google geocoding preserves venue, hint, address, and URL for new links", a
   const res = { status(code) { this.code = code; return this; }, json(body) { this.body = body; } };
   await googleHandler({ query: { url: newUrl, provider: 'google', hint: '駅前カフェ' } }, res);
   assert.equal(res.code, 200);
+  assert.equal(res.body.googleQuota.remaining, 0);
   assert.equal(res.body.candidates[0].shareText, `I'm at 駅前カフェ in 八王子市, 東京都\n${newUrl}`);
 });

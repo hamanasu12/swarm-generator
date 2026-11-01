@@ -123,6 +123,7 @@
     <button id="googleButton" style="display:none;">
       Nominatimに良い候補がないのでGoogleで検索
     </button>
+    <div id="googleQuota" class="status" role="status">Google検索は利用者全員で月9,000回までです（米国太平洋時間の月初に更新）。</div>
   </div>
 
   <pre id="out">ここにJSON結果が表示されます</pre>
@@ -136,6 +137,7 @@
     const candidateList = document.getElementById("candidateList");
     const googleHint = document.getElementById("googleHint");
     const googleButton = document.getElementById("googleButton");
+    const googleQuota = document.getElementById("googleQuota");
     const shareBox = document.getElementById("shareBox");
     const shareText = document.getElementById("shareText");
     const selectedAddress = document.getElementById("selectedAddress");
@@ -145,6 +147,8 @@
     let currentSwarmUrl = "";
     let currentLocationHint = "";
     let latestData = null;
+    let googleBusy = false;
+    let googleLimitReached = false;
 
     urlInput.addEventListener("keydown", function(event) {
       if (event.key === "Enter") {
@@ -209,6 +213,19 @@
 
       const res = await fetch(apiUrl);
       const data = await res.json();
+      if (data.googleQuota) {
+        googleLimitReached = data.googleQuota.remaining === 0;
+        googleQuota.textContent = `Google検索の今月の残り：${data.googleQuota.remaining.toLocaleString()}回 / ${data.googleQuota.limit.toLocaleString()}回（利用者全員の合計・米国太平洋時間）`;
+        googleButton.disabled = googleBusy || googleLimitReached;
+      }
+      if (data.error === "google_monthly_limit") {
+        googleLimitReached = true;
+        googleButton.disabled = true;
+        throw new Error("今月のGoogle検索は上限に達しました。翌月にページを再読み込みすると再開できます。");
+      }
+      if (data.error === "google_budget_unavailable") {
+        throw new Error("検索回数を確認できないため、課金防止のためGoogle検索を停止しています。時間をおいて再度お試しください。");
+      }
       if (!res.ok) {
         throw new Error(data.error === "venue not found"
           ? "チェックインの施設名を取得できませんでした。共有URLを確認してください。"
@@ -276,7 +293,8 @@
     }
 
     async function searchWithGoogle() {
-      if (!currentSwarmUrl) return;
+      if (!currentSwarmUrl || googleBusy || googleLimitReached) return;
+      googleBusy = true;
 
       status.textContent = currentLocationHint
         ? `Googleで候補を取得中...（補助キーワード: ${currentLocationHint}）`
@@ -306,7 +324,8 @@
         status.textContent = e.message + " 元の候補と共有文を残しています。";
         out.textContent = "エラーが発生しました: " + e.message;
       } finally {
-        googleButton.disabled = false;
+        googleBusy = false;
+        googleButton.disabled = googleLimitReached;
       }
     }
 
